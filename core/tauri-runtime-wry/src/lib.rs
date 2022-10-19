@@ -45,7 +45,7 @@ use wry::{
       PhysicalPosition as WryPhysicalPosition, PhysicalSize as WryPhysicalSize,
       Position as WryPosition, Size as WrySize,
     },
-    event::{Event, StartCause, WindowEvent as WryWindowEvent},
+    event::{DeviceEvent, Event, StartCause, WindowEvent as WryWindowEvent},
     event_loop::{
       ControlFlow, EventLoop, EventLoopProxy as WryEventLoopProxy, EventLoopWindowTarget,
     },
@@ -2780,6 +2780,11 @@ fn handle_event_loop<T: UserEvent>(
         }
       }
     }
+    Event::DeviceEvent { event, .. } => match event {
+      DeviceEvent::Added => callback(RunEvent::InputDeviceAdded),
+      DeviceEvent::Removed => callback(RunEvent::InputDeviceRemoved),
+      _ => {}
+    },
     Event::UserEvent(message) => match message {
       Message::Window(id, WindowMessage::Close) => {
         on_window_close(id, windows.clone());

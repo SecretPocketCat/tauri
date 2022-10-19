@@ -178,6 +178,10 @@ pub enum RunEvent {
   ///
   /// This event is useful as a place to put your code that should be run after all state-changing events have been handled and you want to do stuff (updating state, performing calculations, etc) that happens as the “main body” of your event loop.
   MainEventsCleared,
+  /// Input device was added
+  InputDeviceAdded,
+  /// Input device was removed
+  InputDeviceRemoved,
   /// Updater event.
   #[cfg(updater)]
   #[cfg_attr(doc_cfg, doc(cfg(feature = "updater")))]
@@ -1360,6 +1364,14 @@ impl<R: Runtime> Builder<R> {
     self
   }
 
+  // pub fn on_event<F: Fn(GlobalWindowEvent<R>) + Send + Sync + 'static>(
+  //   mut self,
+  //   handler: F,
+  // ) -> Self {
+  //   self.ev
+  //   self
+  // }
+
   /// Registers a system tray event handler.
   ///
   /// Prefer the [`SystemTray#method.on_event`] method when creating a tray at runtime instead.
@@ -1697,6 +1709,8 @@ fn on_event_loop_event<R: Runtime, F: FnMut(&AppHandle<R>, RunEvent) + 'static>(
       }
       RunEvent::Ready
     }
+    RuntimeRunEvent::InputDeviceAdded => RunEvent::InputDeviceAdded,
+    RuntimeRunEvent::InputDeviceRemoved => RunEvent::InputDeviceRemoved,
     RuntimeRunEvent::Resumed => RunEvent::Resumed,
     RuntimeRunEvent::MainEventsCleared => RunEvent::MainEventsCleared,
     RuntimeRunEvent::UserEvent(t) => t.into(),
