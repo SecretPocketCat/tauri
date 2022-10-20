@@ -72,6 +72,7 @@ const WINDOW_FILE_DROP_EVENT: &str = "tauri://file-drop";
 const WINDOW_FILE_DROP_HOVER_EVENT: &str = "tauri://file-drop-hover";
 const WINDOW_FILE_DROP_CANCELLED_EVENT: &str = "tauri://file-drop-cancelled";
 const MENU_EVENT: &str = "tauri://menu";
+const INPUT_DEVICE_EVENT: &str = "tauri://input-device";
 
 #[derive(Default)]
 /// Spaced and quoted Content-Security-Policy hash values.
@@ -1386,6 +1387,8 @@ fn on_window_event<R: Runtime>(
       _ => unimplemented!(),
     },
     WindowEvent::ThemeChanged(theme) => window.emit(WINDOW_THEME_CHANGED, theme.to_string())?,
+    WindowEvent::InputDeviceAdded => window.emit(INPUT_DEVICE_EVENT, true.to_string())?,
+    WindowEvent::InputDeviceRemoved => window.emit(INPUT_DEVICE_EVENT, false.to_string())?,
   }
   Ok(())
 }

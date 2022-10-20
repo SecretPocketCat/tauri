@@ -2780,11 +2780,31 @@ fn handle_event_loop<T: UserEvent>(
         }
       }
     }
-    Event::DeviceEvent { event, .. } => match event {
-      DeviceEvent::Added => callback(RunEvent::InputDeviceAdded),
-      DeviceEvent::Removed => callback(RunEvent::InputDeviceRemoved),
-      _ => {}
-    },
+    Event::DeviceEvent { event, .. } => {
+      let windows_ref = windows.borrow();
+      if let Some((_, window)) = windows_ref.iter().next() {
+        let window_event_listeners = window.window_event_listeners.clone();
+
+        drop(windows_ref);
+
+        if let Some(event) = match event {
+          DeviceEvent::Added => Some(WindowEvent::InputDeviceAdded),
+          DeviceEvent::Removed => Some(WindowEvent::InputDeviceRemoved),
+          _ => None,
+        } {
+          callback(RunEvent::WindowEvent {
+            label: "".into(),
+            event: event.clone(),
+          });
+
+          let listeners = window_event_listeners.lock().unwrap();
+          let handlers = listeners.values();
+          for handler in handlers {
+            handler(&event);
+          }
+        }
+      }
+    }
     Event::UserEvent(message) => match message {
       Message::Window(id, WindowMessage::Close) => {
         on_window_close(id, windows.clone());

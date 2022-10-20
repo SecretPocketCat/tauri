@@ -63,6 +63,8 @@ pub enum WindowEvent {
   ///
   /// Applications might wish to react to this to change the theme of the content of the window when the system changes the window theme.
   ThemeChanged(Theme),
+  InputDeviceAdded,
+  InputDeviceRemoved,
 }
 
 /// The file drop event payload.

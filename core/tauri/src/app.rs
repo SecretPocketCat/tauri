@@ -125,6 +125,8 @@ pub enum WindowEvent {
   ///
   /// - **Linux**: Not supported.
   ThemeChanged(Theme),
+  InputDeviceAdded,
+  InputDeviceRemoved,
 }
 
 impl From<RuntimeWindowEvent> for WindowEvent {
@@ -146,6 +148,8 @@ impl From<RuntimeWindowEvent> for WindowEvent {
       },
       RuntimeWindowEvent::FileDrop(event) => Self::FileDrop(event),
       RuntimeWindowEvent::ThemeChanged(theme) => Self::ThemeChanged(theme),
+      RuntimeWindowEvent::InputDeviceAdded => Self::InputDeviceAdded,
+      RuntimeWindowEvent::InputDeviceRemoved => Self::InputDeviceRemoved,
     }
   }
 }
@@ -178,10 +182,6 @@ pub enum RunEvent {
   ///
   /// This event is useful as a place to put your code that should be run after all state-changing events have been handled and you want to do stuff (updating state, performing calculations, etc) that happens as the “main body” of your event loop.
   MainEventsCleared,
-  /// Input device was added
-  InputDeviceAdded,
-  /// Input device was removed
-  InputDeviceRemoved,
   /// Updater event.
   #[cfg(updater)]
   #[cfg_attr(doc_cfg, doc(cfg(feature = "updater")))]
@@ -1709,8 +1709,6 @@ fn on_event_loop_event<R: Runtime, F: FnMut(&AppHandle<R>, RunEvent) + 'static>(
       }
       RunEvent::Ready
     }
-    RuntimeRunEvent::InputDeviceAdded => RunEvent::InputDeviceAdded,
-    RuntimeRunEvent::InputDeviceRemoved => RunEvent::InputDeviceRemoved,
     RuntimeRunEvent::Resumed => RunEvent::Resumed,
     RuntimeRunEvent::MainEventsCleared => RunEvent::MainEventsCleared,
     RuntimeRunEvent::UserEvent(t) => t.into(),

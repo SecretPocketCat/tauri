@@ -9,6 +9,9 @@
 
 fn main() {
   tauri::Builder::default()
+    .on_window_event(|ev| {
+      println!("ev: {:?}", ev.event());
+    })
     .run(tauri::generate_context!(
       "../../examples/helloworld/tauri.conf.json"
     ))
