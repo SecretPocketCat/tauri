@@ -1,4 +1,4 @@
-// Copyright 2019-2022 Tauri Programme within The Commons Conservancy
+// Copyright 2019-2023 Tauri Programme within The Commons Conservancy
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
@@ -12,8 +12,8 @@ use tauri_runtime::{
     dpi::{PhysicalPosition, PhysicalSize, Position, Size},
     CursorIcon, DetachedWindow, MenuEvent, PendingWindow, WindowEvent,
   },
-  Dispatch, EventLoopProxy, Icon, Result, RunEvent, Runtime, RuntimeHandle, UserAttentionType,
-  UserEvent,
+  DeviceEventFilter, Dispatch, EventLoopProxy, Icon, Result, RunEvent, Runtime, RuntimeHandle,
+  UserAttentionType, UserEvent,
 };
 #[cfg(all(desktop, feature = "system-tray"))]
 use tauri_runtime::{
@@ -71,6 +71,7 @@ impl<T: UserEvent> RuntimeHandle<T> for MockRuntimeHandle {
       label: pending.label,
       dispatcher: MockDispatcher {
         context: self.context.clone(),
+        last_evaluated_script: Default::default(),
       },
       menu_ids: Default::default(),
       js_event_listeners: Default::default(),
@@ -111,6 +112,13 @@ impl<T: UserEvent> RuntimeHandle<T> for MockRuntimeHandle {
 #[derive(Debug, Clone)]
 pub struct MockDispatcher {
   context: RuntimeContext,
+  last_evaluated_script: Arc<Mutex<Option<String>>>,
+}
+
+impl MockDispatcher {
+  pub fn last_evaluated_script(&self) -> Option<String> {
+    self.last_evaluated_script.lock().unwrap().clone()
+  }
 }
 
 #[cfg(all(desktop, feature = "global-shortcut"))]
@@ -213,6 +221,18 @@ impl WindowBuilder for MockWindowBuilder {
     self
   }
 
+  fn maximizable(self, resizable: bool) -> Self {
+    self
+  }
+
+  fn minimizable(self, resizable: bool) -> Self {
+    self
+  }
+
+  fn closable(self, resizable: bool) -> Self {
+    self
+  }
+
   fn title<S: Into<String>>(self, title: S) -> Self {
     self
   }
@@ -250,6 +270,10 @@ impl WindowBuilder for MockWindowBuilder {
     self
   }
 
+  fn content_protected(self, protected: bool) -> Self {
+    self
+  }
+
   fn icon(self, icon: Icon) -> Result<Self> {
     Ok(self)
   }
@@ -280,6 +304,11 @@ impl WindowBuilder for MockWindowBuilder {
 
   #[cfg(target_os = "macos")]
   fn hidden_title(self, transparent: bool) -> Self {
+    self
+  }
+
+  #[cfg(target_os = "macos")]
+  fn tabbing_identifier(self, identifier: &str) -> Self {
     self
   }
 
@@ -324,6 +353,10 @@ impl<T: UserEvent> Dispatch<T> for MockDispatcher {
     Ok(false)
   }
 
+  fn url(&self) -> Result<url::Url> {
+    todo!()
+  }
+
   fn scale_factor(&self) -> Result<f64> {
     Ok(1.0)
   }
@@ -354,7 +387,15 @@ impl<T: UserEvent> Dispatch<T> for MockDispatcher {
     Ok(false)
   }
 
+  fn is_minimized(&self) -> Result<bool> {
+    Ok(false)
+  }
+
   fn is_maximized(&self) -> Result<bool> {
+    Ok(false)
+  }
+
+  fn is_focused(&self) -> Result<bool> {
     Ok(false)
   }
 
@@ -366,8 +407,24 @@ impl<T: UserEvent> Dispatch<T> for MockDispatcher {
     Ok(false)
   }
 
+  fn is_maximizable(&self) -> Result<bool> {
+    Ok(true)
+  }
+
+  fn is_minimizable(&self) -> Result<bool> {
+    Ok(true)
+  }
+
+  fn is_closable(&self) -> Result<bool> {
+    Ok(true)
+  }
+
   fn is_visible(&self) -> Result<bool> {
     Ok(true)
+  }
+
+  fn title(&self) -> Result<String> {
+    Ok(String::new())
   }
 
   fn is_menu_visible(&self) -> Result<bool> {
@@ -428,6 +485,18 @@ impl<T: UserEvent> Dispatch<T> for MockDispatcher {
     Ok(())
   }
 
+  fn set_maximizable(&self, maximizable: bool) -> Result<()> {
+    Ok(())
+  }
+
+  fn set_minimizable(&self, minimizable: bool) -> Result<()> {
+    Ok(())
+  }
+
+  fn set_closable(&self, closable: bool) -> Result<()> {
+    Ok(())
+  }
+
   fn set_title<S: Into<String>>(&self, title: S) -> Result<()> {
     Ok(())
   }
@@ -473,6 +542,10 @@ impl<T: UserEvent> Dispatch<T> for MockDispatcher {
   }
 
   fn set_always_on_top(&self, always_on_top: bool) -> Result<()> {
+    Ok(())
+  }
+
+  fn set_content_protected(&self, protected: bool) -> Result<()> {
     Ok(())
   }
 
@@ -533,6 +606,11 @@ impl<T: UserEvent> Dispatch<T> for MockDispatcher {
   }
 
   fn eval_script<S: Into<String>>(&self, script: S) -> Result<()> {
+    self
+      .last_evaluated_script
+      .lock()
+      .unwrap()
+      .replace(script.into());
     Ok(())
   }
 
@@ -565,6 +643,10 @@ impl TrayHandle for MockTrayHandler {
 
   #[cfg(target_os = "macos")]
   fn set_title(&self, title: &str) -> tauri_runtime::Result<()> {
+    Ok(())
+  }
+
+  fn set_tooltip(&self, tooltip: &str) -> Result<()> {
     Ok(())
   }
 
@@ -662,6 +744,7 @@ impl<T: UserEvent> Runtime<T> for MockRuntime {
       label: pending.label,
       dispatcher: MockDispatcher {
         context: self.context.clone(),
+        last_evaluated_script: Default::default(),
       },
       menu_ids: Default::default(),
       js_event_listeners: Default::default(),
@@ -689,6 +772,8 @@ impl<T: UserEvent> Runtime<T> for MockRuntime {
   #[cfg(target_os = "macos")]
   #[cfg_attr(doc_cfg, doc(cfg(target_os = "macos")))]
   fn hide(&self) {}
+
+  fn set_device_event_filter(&mut self, filter: DeviceEventFilter) {}
 
   #[cfg(any(
     target_os = "macos",

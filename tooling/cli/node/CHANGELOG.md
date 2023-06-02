@@ -1,5 +1,86 @@
 # Changelog
 
+## \[1.3.1]
+
+- Correctly escape XML for resource files in WiX bundler.
+  - Bumped due to a bump in tauri-bundler.
+    - Bumped due to a bump in cli.rs.
+  - [6a6b1388](https://www.github.com/tauri-apps/tauri/commit/6a6b1388ea5787aea4c0e0b0701a4772087bbc0f) fix(bundler): correctly escape resource xml, fixes [#6853](https://www.github.com/tauri-apps/tauri/pull/6853) ([#6855](https://www.github.com/tauri-apps/tauri/pull/6855)) on 2023-05-04
+
+- Added the following languages to the NSIS bundler:
+
+- `Spanish`
+
+- `SpanishInternational`
+
+- Bumped due to a bump in tauri-bundler.
+  - Bumped due to a bump in cli.rs.
+
+- [422b4817](https://www.github.com/tauri-apps/tauri/commit/422b48179856504e980a156500afa8e22c44d357) Add Spanish and SpanishInternational languages ([#6871](https://www.github.com/tauri-apps/tauri/pull/6871)) on 2023-05-06
+
+- Correctly escape arguments in NSIS script to fix bundling apps that use non-default WebView2 install modes.
+  - Bumped due to a bump in tauri-bundler.
+    - Bumped due to a bump in cli.rs.
+  - [2915bd06](https://www.github.com/tauri-apps/tauri/commit/2915bd068ed40dc01a363b69212c6b6f2d3ec01e) fix(bundler): Fix webview install modes in NSIS bundler ([#6854](https://www.github.com/tauri-apps/tauri/pull/6854)) on 2023-05-04
+
+## \[1.3.0]
+
+- Add `--ci` flag and respect the `CI` environment variable on the `signer generate` command. In this case the default password will be an empty string and the CLI will not prompt for a value.
+  - [8fb1df8a](https://www.github.com/tauri-apps/tauri/commit/8fb1df8aa65a52cdb4a7e1bb9dda9b912a7a2895) feat(cli): add `--ci` flag to `signer generate`, closes [#6089](https://www.github.com/tauri-apps/tauri/pull/6089) ([#6097](https://www.github.com/tauri-apps/tauri/pull/6097)) on 2023-01-19
+- Fix Outdated Github Actions in the Plugin Templates `with-api` and `backend`
+  - [a926b49a](https://www.github.com/tauri-apps/tauri/commit/a926b49a01925ca757d391994bfac3beea29599b) Fix Github Actions of Tauri Plugin with-api template ([#6603](https://www.github.com/tauri-apps/tauri/pull/6603)) on 2023-04-03
+- Do not crash on Cargo.toml watcher.
+  - [e8014a7f](https://www.github.com/tauri-apps/tauri/commit/e8014a7f612a1094461ddad63aacc498a2682ff5) fix(cli): do not crash on watcher ([#6303](https://www.github.com/tauri-apps/tauri/pull/6303)) on 2023-02-17
+- Fix crash when nodejs binary has the version in its name, for example `node-18`
+  - [1c8229fb](https://www.github.com/tauri-apps/tauri/commit/1c8229fbe273554c0c97cccee45d5967f5df1b9f) fix(cli.js): detect `node-<version>` binary, closes [#6427](https://www.github.com/tauri-apps/tauri/pull/6427) ([#6432](https://www.github.com/tauri-apps/tauri/pull/6432)) on 2023-03-16
+- Add `--png` option for the `icon` command to generate custom icon sizes.
+  - [9d214412](https://www.github.com/tauri-apps/tauri/commit/9d2144128fc5fad67d8404bce95f82297ebb0e4a) feat(cli): add option to make custom icon sizes, closes [#5121](https://www.github.com/tauri-apps/tauri/pull/5121) ([#5246](https://www.github.com/tauri-apps/tauri/pull/5246)) on 2022-12-27
+- Skip the password prompt on the build command when `TAURI_KEY_PASSWORD` environment variable is empty and the `--ci` argument is provided or the `CI` environment variable is set.
+  - [d4f89af1](https://www.github.com/tauri-apps/tauri/commit/d4f89af18d69fd95a4d8a1ede8442547c6a6d0ee) feat: skip password prompt on the build command if CI is set fixes [#6089](https://www.github.com/tauri-apps/tauri/pull/6089) on 2023-01-18
+- Fix `default-run` not deserialized.
+  - [57c6bf07](https://www.github.com/tauri-apps/tauri/commit/57c6bf07bb380847abdf27c3fff9891d99c1c98c) fix(cli): fix default-run not deserialized ([#6584](https://www.github.com/tauri-apps/tauri/pull/6584)) on 2023-03-30
+- Fixes HTML serialization removing template tags on the dev server.
+  - [314f0e21](https://www.github.com/tauri-apps/tauri/commit/314f0e212fd2b9e452bfe3424cdce2b0bf37b5d7) fix(cli): web_dev_server html template serialization (fix [#6165](https://www.github.com/tauri-apps/tauri/pull/6165)) ([#6166](https://www.github.com/tauri-apps/tauri/pull/6166)) on 2023-01-29
+- Use escaping on Handlebars templates.
+  - [6d6b6e65](https://www.github.com/tauri-apps/tauri/commit/6d6b6e653ea70fc02794f723092cdc860995c259) feat: configure escaping on handlebars templates ([#6678](https://www.github.com/tauri-apps/tauri/pull/6678)) on 2023-05-02
+- Add initial support for building `nsis` bundles on non-Windows platforms.
+  - [60e6f6c3](https://www.github.com/tauri-apps/tauri/commit/60e6f6c3f1605f3064b5bb177992530ff788ccf0) feat(bundler): Add support for creating NSIS bundles on unix hosts ([#5788](https://www.github.com/tauri-apps/tauri/pull/5788)) on 2023-01-19
+- Add `nsis` bundle target
+  - [c94e1326](https://www.github.com/tauri-apps/tauri/commit/c94e1326a7c0767a13128a8b1d327a00156ece12) feat(bundler): add `nsis`, closes [#4450](https://www.github.com/tauri-apps/tauri/pull/4450), closes [#2319](https://www.github.com/tauri-apps/tauri/pull/2319) ([#4674](https://www.github.com/tauri-apps/tauri/pull/4674)) on 2023-01-03
+- Remove default features from Cargo.toml template.
+  - [b08ae637](https://www.github.com/tauri-apps/tauri/commit/b08ae637a0f58b38cbce9b8a1fa0b6c5dc0cfd05) fix(cli): remove default features from template ([#6074](https://www.github.com/tauri-apps/tauri/pull/6074)) on 2023-01-17
+- Use Ubuntu 20.04 to compile the CLI, increasing the minimum libc version required.
+
+## \[1.2.3]
+
+- Pin `ignore` to `=0.4.18`.
+  - [adcb082b](https://www.github.com/tauri-apps/tauri/commit/adcb082b1651ecb2a6208b093e12f4185aa3fc98) chore(deps): pin `ignore` to =0.4.18 on 2023-01-17
+
+## \[1.2.2]
+
+- Detect SvelteKit and Vite for the init and info commands.
+  - [9d872ab8](https://www.github.com/tauri-apps/tauri/commit/9d872ab8728b1b121909af434adcd5936e5afb7d) feat(cli): detect SvelteKit and Vite ([#5742](https://www.github.com/tauri-apps/tauri/pull/5742)) on 2022-12-02
+- Detect SolidJS and SolidStart for the init and info commands.
+  - [9e7ce0a8](https://www.github.com/tauri-apps/tauri/commit/9e7ce0a8eef4bf3536645976e3e09162fbf772ab) feat(cli): detect SolidJS and SolidStart ([#5758](https://www.github.com/tauri-apps/tauri/pull/5758)) on 2022-12-08
+- Use older icon types to work around a macOS bug resulting in corrupted 16x16px and 32x32px icons in bundled apps.
+  - [2d545eff](https://www.github.com/tauri-apps/tauri/commit/2d545eff58734ec70f23f11a429d35435cdf090e) fix(cli): corrupted icons in bundled macOS icons ([#5698](https://www.github.com/tauri-apps/tauri/pull/5698)) on 2022-11-28
+
+## \[1.2.1]
+
+- Fixes injection of Cargo features defined in the configuration file.
+  - [1ecaeb29](https://www.github.com/tauri-apps/tauri/commit/1ecaeb29aa798f591f6488dc6c3a7a8d22f6073e) fix(cli): inject config feature flags when features arg is not provided on 2022-11-18
+
+## \[1.2.0]
+
+- Detect JSON5 and TOML configuration files in the dev watcher.
+  - [e7ccbd85](https://www.github.com/tauri-apps/tauri/commit/e7ccbd8573f6b9124e80c0b67fa2365729c3c196) feat(cli): detect JSON5 and TOML configuration files in the dev watcher ([#5439](https://www.github.com/tauri-apps/tauri/pull/5439)) on 2022-10-19
+- Log dev watcher file change detection.
+  - [9076d5d2](https://www.github.com/tauri-apps/tauri/commit/9076d5d2e76d432aef475ba403e9ab5bd3b9d2b0) feat(cli): add prompt information when file changing detected, closes [#5417](https://www.github.com/tauri-apps/tauri/pull/5417) ([#5428](https://www.github.com/tauri-apps/tauri/pull/5428)) on 2022-10-19
+- Fix crash when nodejs binary has the version in its name, for example `node18` or when running through deno.
+  - [7a231cd1](https://www.github.com/tauri-apps/tauri/commit/7a231cd1c99101f63354b13bb36223568d2f0a11) fix(cli): detect deno ([#5475](https://www.github.com/tauri-apps/tauri/pull/5475)) on 2022-10-28
+- Changed the project template to not enable all APIs by default.
+  - [582c25a0](https://www.github.com/tauri-apps/tauri/commit/582c25a0f0fa2725d786ec4edd0defe7811ad6e8) refactor(cli): disable api-all on templates ([#5538](https://www.github.com/tauri-apps/tauri/pull/5538)) on 2022-11-03
+
 ## \[1.1.1]
 
 - Fix wrong cli metadata that caused new projects (created through `tauri init`) fail to build

@@ -1,4 +1,4 @@
-// Copyright 2019-2022 Tauri Programme within The Commons Conservancy
+// Copyright 2019-2023 Tauri Programme within The Commons Conservancy
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
@@ -11,7 +11,7 @@ use crate::{
   interface::{AppInterface, ExitReason, Interface},
   CommandExt, Result,
 };
-use clap::Parser;
+use clap::{ArgAction, Parser};
 
 use anyhow::{bail, Context};
 use log::{error, info, warn};
@@ -45,7 +45,7 @@ pub struct Options {
   #[clap(short, long)]
   pub target: Option<String>,
   /// List of cargo features to activate
-  #[clap(short, long, multiple_occurrences(true), multiple_values(true))]
+  #[clap(short, long, action = ArgAction::Append, num_args(0..))]
   pub features: Option<Vec<String>>,
   /// Exit on panic
   #[clap(short, long)]
@@ -61,6 +61,13 @@ pub struct Options {
   /// Disable the file watcher
   #[clap(long)]
   pub no_watch: bool,
+  /// Disable the dev server for static files.
+  #[clap(long)]
+  pub no_dev_server: bool,
+  /// Specify port for the dev server for static files. Defaults to 1430
+  /// Can also be set using `TAURI_DEV_SERVER_PORT` env var.
+  #[clap(long)]
+  pub port: Option<u16>,
 }
 
 pub fn command(options: Options) -> Result<()> {
@@ -79,13 +86,13 @@ fn command_internal(mut options: Options) -> Result<()> {
     Some(if config.starts_with('{') {
       config.to_string()
     } else {
-      std::fs::read_to_string(&config).with_context(|| "failed to read custom configuration")?
+      std::fs::read_to_string(config).with_context(|| "failed to read custom configuration")?
     })
   } else {
     None
   };
 
-  set_current_dir(&tauri_path).with_context(|| "failed to change current working directory")?;
+  set_current_dir(tauri_path).with_context(|| "failed to change current working directory")?;
 
   let config = get_config(options.config.as_deref())?;
 
@@ -159,7 +166,7 @@ fn command_internal(mut options: Options) -> Result<()> {
         command.stderr(os_pipe::dup_stderr()?);
 
         let child = SharedChild::spawn(&mut command)
-          .unwrap_or_else(|_| panic!("failed to run `{}`", before_dev));
+          .unwrap_or_else(|_| panic!("failed to run `{before_dev}`"));
         let child = Arc::new(child);
         let child_ = child.clone();
 
@@ -218,31 +225,31 @@ fn command_internal(mut options: Options) -> Result<()> {
     .build
     .dev_path
     .clone();
-  if let AppUrl::Url(WindowUrl::App(path)) = &dev_path {
-    use crate::helpers::web_dev_server::{start_dev_server, SERVER_URL};
-    if path.exists() {
-      let path = path.canonicalize()?;
-      start_dev_server(path);
-      dev_path = AppUrl::Url(WindowUrl::External(SERVER_URL.parse().unwrap()));
+  if !options.no_dev_server {
+    if let AppUrl::Url(WindowUrl::App(path)) = &dev_path {
+      use crate::helpers::web_dev_server::start_dev_server;
+      if path.exists() {
+        let path = path.canonicalize()?;
+        let server_url = start_dev_server(path, options.port)?;
+        let server_url = format!("http://{server_url}");
+        dev_path = AppUrl::Url(WindowUrl::External(server_url.parse().unwrap()));
 
-      // TODO: in v2, use an env var to pass the url to the app context
-      // or better separate the config passed from the cli internally and
-      // config passed by the user in `--config` into to separate env vars
-      // and the context merges, the user first, then the internal cli config
-      if let Some(c) = options.config {
-        let mut c: tauri_utils::config::Config = serde_json::from_str(&c)?;
-        c.build.dev_path = dev_path.clone();
-        options.config = Some(serde_json::to_string(&c).unwrap());
-      } else {
-        options.config = Some(format!(
-          r#"{{ "build": {{ "devPath": "{}" }} }}"#,
-          SERVER_URL
-        ))
+        // TODO: in v2, use an env var to pass the url to the app context
+        // or better separate the config passed from the cli internally and
+        // config passed by the user in `--config` into to separate env vars
+        // and the context merges, the user first, then the internal cli config
+        if let Some(c) = options.config {
+          let mut c: tauri_utils::config::Config = serde_json::from_str(&c)?;
+          c.build.dev_path = dev_path.clone();
+          options.config = Some(serde_json::to_string(&c).unwrap());
+        } else {
+          options.config = Some(format!(r#"{{ "build": {{ "devPath": "{server_url}" }} }}"#))
+        }
       }
     }
-  }
 
-  reload_config(options.config.as_deref())?;
+    reload_config(options.config.as_deref())?;
+  }
 
   if std::env::var_os("TAURI_SKIP_DEVSERVER_CHECK") != Some("true".into()) {
     if let AppUrl::Url(WindowUrl::External(dev_server_url)) = dev_path {
@@ -271,11 +278,15 @@ fn command_internal(mut options: Options) -> Result<()> {
       };
       let mut i = 0;
       let sleep_interval = std::time::Duration::from_secs(2);
+      let timeout_duration = std::time::Duration::from_secs(1);
       let max_attempts = 90;
-      loop {
-        if std::net::TcpStream::connect(addrs).is_ok() {
-          break;
+      'waiting: loop {
+        for addr in addrs.iter() {
+          if std::net::TcpStream::connect_timeout(addr, timeout_duration).is_ok() {
+            break 'waiting;
+          }
         }
+
         if i % 3 == 1 {
           warn!(
             "Waiting for your frontend dev server to start on {}...",

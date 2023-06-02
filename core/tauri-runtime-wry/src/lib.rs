@@ -1,4 +1,4 @@
-// Copyright 2019-2022 Tauri Programme within The Commons Conservancy
+// Copyright 2019-2023 Tauri Programme within The Commons Conservancy
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
@@ -14,8 +14,8 @@ use tauri_runtime::{
     dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, Position, Size},
     CursorIcon, DetachedWindow, FileDropEvent, JsEventListenerKey, PendingWindow, WindowEvent,
   },
-  Dispatch, Error, EventLoopProxy, ExitRequestedEventAction, Icon, Result, RunEvent, RunIteration,
-  Runtime, RuntimeHandle, UserAttentionType, UserEvent,
+  DeviceEventFilter, Dispatch, Error, EventLoopProxy, ExitRequestedEventAction, Icon, Result,
+  RunEvent, RunIteration, Runtime, RuntimeHandle, UserAttentionType, UserEvent,
 };
 
 use tauri_runtime::window::MenuEvent;
@@ -33,6 +33,8 @@ use wry::application::platform::macos::WindowBuilderExtMacOS;
 use wry::application::platform::unix::{WindowBuilderExtUnix, WindowExtUnix};
 #[cfg(windows)]
 use wry::application::platform::windows::{WindowBuilderExtWindows, WindowExtWindows};
+#[cfg(windows)]
+use wry::webview::WebViewBuilderExtWindows;
 
 #[cfg(target_os = "macos")]
 use tauri_utils::TitleBarStyle;
@@ -47,7 +49,8 @@ use wry::{
     },
     event::{DeviceEvent, Event, StartCause, WindowEvent as WryWindowEvent},
     event_loop::{
-      ControlFlow, EventLoop, EventLoopProxy as WryEventLoopProxy, EventLoopWindowTarget,
+      ControlFlow, DeviceEventFilter as WryDeviceEventFilter, EventLoop,
+      EventLoopProxy as WryEventLoopProxy, EventLoopWindowTarget,
     },
     menu::{
       AboutMetadata as WryAboutMetadata, CustomMenuItem as WryCustomMenuItem, MenuBar,
@@ -61,11 +64,11 @@ use wry::{
     },
   },
   http::{Request as WryRequest, Response as WryResponse},
-  webview::{FileDropEvent as WryFileDropEvent, WebContext, WebView, WebViewBuilder},
+  webview::{FileDropEvent as WryFileDropEvent, Url, WebContext, WebView, WebViewBuilder},
 };
 
-pub use wry;
 pub use wry::application::window::{Window, WindowBuilder as WryWindowBuilder, WindowId};
+pub use wry::webview::webview_version;
 
 #[cfg(windows)]
 use wry::webview::WebviewExtWindows;
@@ -79,6 +82,7 @@ pub use wry::application::platform::macos::{
 };
 
 use std::{
+  borrow::Cow,
   cell::RefCell,
   collections::{
     hash_map::Entry::{Occupied, Vacant},
@@ -284,7 +288,7 @@ impl From<&WryRequest<Vec<u8>>> for HttpRequestWrapper {
 }
 
 // response
-struct HttpResponseWrapper(WryResponse<Vec<u8>>);
+struct HttpResponseWrapper(WryResponse<Cow<'static, [u8]>>);
 impl From<HttpResponse> for HttpResponseWrapper {
   fn from(response: HttpResponse) -> Self {
     let (parts, body) = response.into_parts();
@@ -298,7 +302,7 @@ impl From<HttpResponse> for HttpResponseWrapper {
       res_builder = res_builder.header(name, val);
     }
 
-    let res = res_builder.body(body).unwrap();
+    let res = res_builder.body(Cow::Owned(body)).unwrap();
     Self(res)
   }
 }
@@ -360,6 +364,18 @@ impl From<MenuItem> for MenuItemWrapper {
       MenuItem::Zoom => Self(WryMenuItem::Zoom),
       MenuItem::Separator => Self(WryMenuItem::Separator),
       _ => unimplemented!(),
+    }
+  }
+}
+
+pub struct DeviceEventFilterWrapper(pub WryDeviceEventFilter);
+
+impl From<DeviceEventFilter> for DeviceEventFilterWrapper {
+  fn from(item: DeviceEventFilter) -> Self {
+    match item {
+      DeviceEventFilter::Always => Self(WryDeviceEventFilter::Always),
+      DeviceEventFilter::Never => Self(WryDeviceEventFilter::Never),
+      DeviceEventFilter::Unfocused => Self(WryDeviceEventFilter::Unfocused),
     }
   }
 }
@@ -680,6 +696,8 @@ impl From<CursorIcon> for CursorIconWrapper {
 pub struct WindowBuilderWrapper {
   inner: WryWindowBuilder,
   center: bool,
+  #[cfg(target_os = "macos")]
+  tabbing_identifier: Option<String>,
   menu: Option<Menu>,
 }
 
@@ -699,10 +717,14 @@ impl WindowBuilder for WindowBuilderWrapper {
       .inner_size(config.width, config.height)
       .visible(config.visible)
       .resizable(config.resizable)
+      .maximizable(config.maximizable)
+      .minimizable(config.minimizable)
+      .closable(config.closable)
       .fullscreen(config.fullscreen)
       .decorations(config.decorations)
       .maximized(config.maximized)
       .always_on_top(config.always_on_top)
+      .content_protected(config.content_protected)
       .skip_taskbar(config.skip_taskbar)
       .theme(config.theme);
 
@@ -711,6 +733,9 @@ impl WindowBuilder for WindowBuilderWrapper {
       window = window
         .hidden_title(config.hidden_title)
         .title_bar_style(config.title_bar_style);
+      if let Some(identifier) = &config.tabbing_identifier {
+        window = window.tabbing_identifier(identifier);
+      }
     }
 
     #[cfg(any(not(target_os = "macos"), feature = "macos-private-api"))]
@@ -727,6 +752,12 @@ impl WindowBuilder for WindowBuilderWrapper {
         "The window is set to be transparent but the `macos-private-api` is not enabled.
         This can be enabled via the `tauri.macOSPrivateApi` configuration property <https://tauri.app/docs/api/config#tauri.macOSPrivateApi>
       ");
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+      // Mouse event is disabled on Linux since sudden event bursts could block event loop.
+      window.inner = window.inner.with_cursor_moved_event(false);
     }
 
     if let (Some(min_width), Some(min_height)) = (config.min_width, config.min_height) {
@@ -787,6 +818,21 @@ impl WindowBuilder for WindowBuilderWrapper {
     self
   }
 
+  fn maximizable(mut self, maximizable: bool) -> Self {
+    self.inner = self.inner.with_maximizable(maximizable);
+    self
+  }
+
+  fn minimizable(mut self, minimizable: bool) -> Self {
+    self.inner = self.inner.with_minimizable(minimizable);
+    self
+  }
+
+  fn closable(mut self, closable: bool) -> Self {
+    self.inner = self.inner.with_closable(closable);
+    self
+  }
+
   fn title<S: Into<String>>(mut self, title: S) -> Self {
     self.inner = self.inner.with_title(title.into());
     self
@@ -834,6 +880,11 @@ impl WindowBuilder for WindowBuilderWrapper {
     self
   }
 
+  fn content_protected(mut self, protected: bool) -> Self {
+    self.inner = self.inner.with_content_protection(protected);
+    self
+  }
+
   #[cfg(windows)]
   fn parent_window(mut self, parent: HWND) -> Self {
     self.inner = self.inner.with_parent_window(parent);
@@ -875,6 +926,13 @@ impl WindowBuilder for WindowBuilderWrapper {
   #[cfg(target_os = "macos")]
   fn hidden_title(mut self, hidden: bool) -> Self {
     self.inner = self.inner.with_title_hidden(hidden);
+    self
+  }
+
+  #[cfg(target_os = "macos")]
+  fn tabbing_identifier(mut self, identifier: &str) -> Self {
+    self.inner = self.inner.with_tabbing_identifier(identifier);
+    self.tabbing_identifier.replace(identifier.into());
     self
   }
 
@@ -1005,16 +1063,23 @@ pub enum WindowMessage {
   #[cfg(any(debug_assertions, feature = "devtools"))]
   IsDevToolsOpen(Sender<bool>),
   // Getters
+  Url(Sender<Url>),
   ScaleFactor(Sender<f64>),
   InnerPosition(Sender<Result<PhysicalPosition<i32>>>),
   OuterPosition(Sender<Result<PhysicalPosition<i32>>>),
   InnerSize(Sender<PhysicalSize<u32>>),
   OuterSize(Sender<PhysicalSize<u32>>),
   IsFullscreen(Sender<bool>),
+  IsMinimized(Sender<bool>),
   IsMaximized(Sender<bool>),
+  IsFocused(Sender<bool>),
   IsDecorated(Sender<bool>),
   IsResizable(Sender<bool>),
+  IsMaximizable(Sender<bool>),
+  IsMinimizable(Sender<bool>),
+  IsClosable(Sender<bool>),
   IsVisible(Sender<bool>),
+  Title(Sender<String>),
   IsMenuVisible(Sender<bool>),
   CurrentMonitor(Sender<Option<MonitorHandle>>),
   PrimaryMonitor(Sender<Option<MonitorHandle>>),
@@ -1033,6 +1098,9 @@ pub enum WindowMessage {
   Center,
   RequestUserAttention(Option<UserAttentionTypeWrapper>),
   SetResizable(bool),
+  SetMaximizable(bool),
+  SetMinimizable(bool),
+  SetClosable(bool),
   SetTitle(String),
   Maximize,
   Unmaximize,
@@ -1045,6 +1113,7 @@ pub enum WindowMessage {
   Close,
   SetDecorations(bool),
   SetAlwaysOnTop(bool),
+  SetContentProtected(bool),
   SetSize(Size),
   SetMinSize(Option<Size>),
   SetMaxSize(Option<Size>),
@@ -1087,6 +1156,7 @@ pub enum TrayMessage {
   UpdateIconAsTemplate(bool),
   #[cfg(target_os = "macos")]
   UpdateTitle(String),
+  UpdateTooltip(String),
   Create(SystemTray, Sender<Result<()>>),
   Destroy(Sender<Result<()>>),
 }
@@ -1203,6 +1273,10 @@ impl<T: UserEvent> Dispatch<T> for WryDispatcher<T> {
 
   // Getters
 
+  fn url(&self) -> Result<Url> {
+    window_getter!(self, WindowMessage::Url)
+  }
+
   fn scale_factor(&self) -> Result<f64> {
     window_getter!(self, WindowMessage::ScaleFactor)
   }
@@ -1227,8 +1301,16 @@ impl<T: UserEvent> Dispatch<T> for WryDispatcher<T> {
     window_getter!(self, WindowMessage::IsFullscreen)
   }
 
+  fn is_minimized(&self) -> Result<bool> {
+    window_getter!(self, WindowMessage::IsMinimized)
+  }
+
   fn is_maximized(&self) -> Result<bool> {
     window_getter!(self, WindowMessage::IsMaximized)
+  }
+
+  fn is_focused(&self) -> Result<bool> {
+    window_getter!(self, WindowMessage::IsFocused)
   }
 
   /// Gets the window’s current decoration state.
@@ -1241,8 +1323,27 @@ impl<T: UserEvent> Dispatch<T> for WryDispatcher<T> {
     window_getter!(self, WindowMessage::IsResizable)
   }
 
+  /// Gets the current native window's maximize button state
+  fn is_maximizable(&self) -> Result<bool> {
+    window_getter!(self, WindowMessage::IsMaximizable)
+  }
+
+  /// Gets the current native window's minimize button state
+  fn is_minimizable(&self) -> Result<bool> {
+    window_getter!(self, WindowMessage::IsMinimizable)
+  }
+
+  /// Gets the current native window's close button state
+  fn is_closable(&self) -> Result<bool> {
+    window_getter!(self, WindowMessage::IsClosable)
+  }
+
   fn is_visible(&self) -> Result<bool> {
     window_getter!(self, WindowMessage::IsVisible)
+  }
+
+  fn title(&self) -> Result<String> {
+    window_getter!(self, WindowMessage::Title)
   }
 
   fn is_menu_visible(&self) -> Result<bool> {
@@ -1325,6 +1426,27 @@ impl<T: UserEvent> Dispatch<T> for WryDispatcher<T> {
     send_user_message(
       &self.context,
       Message::Window(self.window_id, WindowMessage::SetResizable(resizable)),
+    )
+  }
+
+  fn set_maximizable(&self, maximizable: bool) -> Result<()> {
+    send_user_message(
+      &self.context,
+      Message::Window(self.window_id, WindowMessage::SetMaximizable(maximizable)),
+    )
+  }
+
+  fn set_minimizable(&self, minimizable: bool) -> Result<()> {
+    send_user_message(
+      &self.context,
+      Message::Window(self.window_id, WindowMessage::SetMinimizable(minimizable)),
+    )
+  }
+
+  fn set_closable(&self, closable: bool) -> Result<()> {
+    send_user_message(
+      &self.context,
+      Message::Window(self.window_id, WindowMessage::SetClosable(closable)),
     )
   }
 
@@ -1411,6 +1533,16 @@ impl<T: UserEvent> Dispatch<T> for WryDispatcher<T> {
     send_user_message(
       &self.context,
       Message::Window(self.window_id, WindowMessage::SetAlwaysOnTop(always_on_top)),
+    )
+  }
+
+  fn set_content_protected(&self, protected: bool) -> Result<()> {
+    send_user_message(
+      &self.context,
+      Message::Window(
+        self.window_id,
+        WindowMessage::SetContentProtected(protected),
+      ),
     )
   }
 
@@ -1538,8 +1670,28 @@ impl<T: UserEvent> Dispatch<T> for WryDispatcher<T> {
 
 #[derive(Clone)]
 enum WindowHandle {
-  Webview(Arc<WebView>),
+  Webview {
+    inner: Arc<WebView>,
+    context_store: WebContextStore,
+    // the key of the WebContext if it's not shared
+    context_key: Option<PathBuf>,
+  },
   Window(Arc<Window>),
+}
+
+impl Drop for WindowHandle {
+  fn drop(&mut self) {
+    if let Self::Webview {
+      inner,
+      context_store,
+      context_key,
+    } = self
+    {
+      if Arc::get_mut(inner).is_some() {
+        context_store.lock().unwrap().remove(context_key);
+      }
+    }
+  }
 }
 
 impl fmt::Debug for WindowHandle {
@@ -1554,7 +1706,7 @@ impl Deref for WindowHandle {
   #[inline(always)]
   fn deref(&self) -> &Window {
     match self {
-      Self::Webview(w) => w.window(),
+      Self::Webview { inner, .. } => inner.window(),
       Self::Window(w) => w,
     }
   }
@@ -1564,7 +1716,7 @@ impl WindowHandle {
   fn inner_size(&self) -> WryPhysicalSize<u32> {
     match self {
       WindowHandle::Window(w) => w.inner_size(),
-      WindowHandle::Webview(w) => w.inner_size(),
+      WindowHandle::Webview { inner, .. } => inner.inner_size(),
     }
   }
 }
@@ -1996,6 +2148,12 @@ impl<T: UserEvent> Runtime<T> for Wry<T> {
     self.event_loop.hide_application();
   }
 
+  fn set_device_event_filter(&mut self, filter: DeviceEventFilter) {
+    self
+      .event_loop
+      .set_device_event_filter(DeviceEventFilterWrapper::from(filter).0);
+  }
+
   #[cfg(desktop)]
   fn run_iteration<F: FnMut(RunEvent<T>) + 'static>(&mut self, mut callback: F) -> RunIteration {
     use wry::application::platform::run_return::EventLoopExtRunReturn;
@@ -2223,7 +2381,7 @@ fn handle_user_message<T: UserEvent>(
           match window_message {
             #[cfg(desktop)]
             WindowMessage::WithWebview(f) => {
-              if let WindowHandle::Webview(w) = window {
+              if let WindowHandle::Webview { inner: w, .. } = &window {
                 #[cfg(any(
                   target_os = "linux",
                   target_os = "dragonfly",
@@ -2264,25 +2422,30 @@ fn handle_user_message<T: UserEvent>(
 
             #[cfg(any(debug_assertions, feature = "devtools"))]
             WindowMessage::OpenDevTools => {
-              if let WindowHandle::Webview(w) = &window {
+              if let WindowHandle::Webview { inner: w, .. } = &window {
                 w.open_devtools();
               }
             }
             #[cfg(any(debug_assertions, feature = "devtools"))]
             WindowMessage::CloseDevTools => {
-              if let WindowHandle::Webview(w) = &window {
+              if let WindowHandle::Webview { inner: w, .. } = &window {
                 w.close_devtools();
               }
             }
             #[cfg(any(debug_assertions, feature = "devtools"))]
             WindowMessage::IsDevToolsOpen(tx) => {
-              if let WindowHandle::Webview(w) = &window {
+              if let WindowHandle::Webview { inner: w, .. } = &window {
                 tx.send(w.is_devtools_open()).unwrap();
               } else {
                 tx.send(false).unwrap();
               }
             }
             // Getters
+            WindowMessage::Url(tx) => {
+              if let WindowHandle::Webview { inner: w, .. } = &window {
+                tx.send(w.url()).unwrap();
+              }
+            }
             WindowMessage::ScaleFactor(tx) => tx.send(window.scale_factor()).unwrap(),
             WindowMessage::InnerPosition(tx) => tx
               .send(
@@ -2307,10 +2470,16 @@ fn handle_user_message<T: UserEvent>(
               .send(PhysicalSizeWrapper(window.outer_size()).into())
               .unwrap(),
             WindowMessage::IsFullscreen(tx) => tx.send(window.fullscreen().is_some()).unwrap(),
+            WindowMessage::IsMinimized(tx) => tx.send(window.is_minimized()).unwrap(),
             WindowMessage::IsMaximized(tx) => tx.send(window.is_maximized()).unwrap(),
+            WindowMessage::IsFocused(tx) => tx.send(window.is_focused()).unwrap(),
             WindowMessage::IsDecorated(tx) => tx.send(window.is_decorated()).unwrap(),
             WindowMessage::IsResizable(tx) => tx.send(window.is_resizable()).unwrap(),
+            WindowMessage::IsMaximizable(tx) => tx.send(window.is_maximizable()).unwrap(),
+            WindowMessage::IsMinimizable(tx) => tx.send(window.is_minimizable()).unwrap(),
+            WindowMessage::IsClosable(tx) => tx.send(window.is_closable()).unwrap(),
             WindowMessage::IsVisible(tx) => tx.send(window.is_visible()).unwrap(),
+            WindowMessage::Title(tx) => tx.send(window.title()).unwrap(),
             WindowMessage::IsMenuVisible(tx) => tx.send(window.is_menu_visible()).unwrap(),
             WindowMessage::CurrentMonitor(tx) => tx.send(window.current_monitor()).unwrap(),
             WindowMessage::PrimaryMonitor(tx) => tx.send(window.primary_monitor()).unwrap(),
@@ -2341,6 +2510,9 @@ fn handle_user_message<T: UserEvent>(
               window.request_user_attention(request_type.map(|r| r.0));
             }
             WindowMessage::SetResizable(resizable) => window.set_resizable(resizable),
+            WindowMessage::SetMaximizable(maximizable) => window.set_maximizable(maximizable),
+            WindowMessage::SetMinimizable(minimizable) => window.set_minimizable(minimizable),
+            WindowMessage::SetClosable(closable) => window.set_closable(closable),
             WindowMessage::SetTitle(title) => window.set_title(&title),
             WindowMessage::Maximize => window.set_maximized(true),
             WindowMessage::Unmaximize => window.set_maximized(false),
@@ -2355,6 +2527,9 @@ fn handle_user_message<T: UserEvent>(
             }
             WindowMessage::SetDecorations(decorations) => window.set_decorations(decorations),
             WindowMessage::SetAlwaysOnTop(always_on_top) => window.set_always_on_top(always_on_top),
+            WindowMessage::SetContentProtected(protected) => {
+              window.set_content_protection(protected)
+            }
             WindowMessage::SetSize(size) => {
               window.set_inner_size(SizeWrapper::from(size).0);
             }
@@ -2415,7 +2590,7 @@ fn handle_user_message<T: UserEvent>(
     }
     Message::Webview(id, webview_message) => match webview_message {
       WebviewMessage::EvaluateScript(script) => {
-        if let Some(WindowHandle::Webview(webview)) =
+        if let Some(WindowHandle::Webview { inner: webview, .. }) =
           windows.borrow().get(&id).and_then(|w| w.inner.as_ref())
         {
           if let Err(e) = webview.evaluate_script(&script) {
@@ -2424,27 +2599,13 @@ fn handle_user_message<T: UserEvent>(
         }
       }
       WebviewMessage::Print => {
-        if let Some(WindowHandle::Webview(webview)) =
+        if let Some(WindowHandle::Webview { inner: webview, .. }) =
           windows.borrow().get(&id).and_then(|w| w.inner.as_ref())
         {
           let _ = webview.print();
         }
       }
-      WebviewMessage::WebviewEvent(event) => {
-        let window_event_listeners = windows
-          .borrow()
-          .get(&id)
-          .map(|w| w.window_event_listeners.clone());
-        if let Some(window_event_listeners) = window_event_listeners {
-          if let Some(event) = WindowEventWrapper::from(&event).0 {
-            let listeners = window_event_listeners.lock().unwrap();
-            let handlers = listeners.values();
-            for handler in handlers {
-              handler(&event);
-            }
-          }
-        }
-      }
+      WebviewMessage::WebviewEvent(_event) => { /* already handled */ }
     },
     Message::CreateWebview(window_id, handler) => match handler(event_loop, web_context) {
       Ok(webview) => {
@@ -2481,14 +2642,18 @@ fn handle_user_message<T: UserEvent>(
     Message::Tray(tray_id, tray_message) => {
       let mut trays = system_tray_manager.trays.lock().unwrap();
 
-      if let TrayMessage::Create(tray, tx) = tray_message {
+      if let TrayMessage::Create(mut tray, tx) = tray_message {
+        let mut listeners = Vec::new();
+        if let Some(l) = tray.on_event.take() {
+          listeners.push(Arc::new(l));
+        }
         match create_tray(WryTrayId(tray_id), tray, event_loop) {
           Ok((tray, items)) => {
             trays.insert(
               tray_id,
               TrayContext {
                 tray: Arc::new(Mutex::new(Some(tray))),
-                listeners: Default::default(),
+                listeners: Arc::new(Mutex::new(listeners)),
                 items: Arc::new(Mutex::new(items)),
               },
             );
@@ -2539,6 +2704,11 @@ fn handle_user_message<T: UserEvent>(
           TrayMessage::UpdateTitle(title) => {
             if let Some(tray) = &mut *tray_context.tray.lock().unwrap() {
               tray.set_title(&title);
+            }
+          }
+          TrayMessage::UpdateTooltip(tooltip) => {
+            if let Some(tray) = &mut *tray_context.tray.lock().unwrap() {
+              tray.set_tooltip(&tooltip);
             }
           }
           TrayMessage::Create(_tray, _tx) => {
@@ -2729,6 +2899,24 @@ fn handle_event_loop<T: UserEvent>(
         global_listener(id.0, &event);
       }
     }
+    Event::UserEvent(Message::Webview(id, WebviewMessage::WebviewEvent(event))) => {
+      if let Some(event) = WindowEventWrapper::from(&event).0 {
+        let windows = windows.borrow();
+        let window = windows.get(&id);
+        if let Some(window) = window {
+          callback(RunEvent::WindowEvent {
+            label: window.label.clone(),
+            event: event.clone(),
+          });
+
+          let listeners = window.window_event_listeners.lock().unwrap();
+          let handlers = listeners.values();
+          for handler in handlers {
+            handler(&event);
+          }
+        }
+      }
+    }
     Event::WindowEvent {
       event, window_id, ..
     } => {
@@ -2756,6 +2944,19 @@ fn handle_event_loop<T: UserEvent>(
         }
 
         match event {
+          #[cfg(windows)]
+          WryWindowEvent::ThemeChanged(theme) => {
+            if let Some(window) = windows.borrow().get(&window_id) {
+              if let Some(WindowHandle::Webview { inner, .. }) = &window.inner {
+                let theme = match theme {
+                  WryTheme::Dark => wry::webview::Theme::Dark,
+                  WryTheme::Light => wry::webview::Theme::Light,
+                  _ => wry::webview::Theme::Light,
+                };
+                inner.set_theme(theme);
+              }
+            }
+          }
           WryWindowEvent::CloseRequested => {
             on_close_requested(callback, window_id, windows.clone());
           }
@@ -2926,7 +3127,7 @@ fn to_wry_menu(
 fn create_webview<T: UserEvent>(
   window_id: WebviewId,
   event_loop: &EventLoopWindowTarget<Message<T>>,
-  web_context: &WebContextStore,
+  web_context_store: &WebContextStore,
   context: Context<T>,
   pending: PendingWindow<T, Wry<T>>,
 ) -> Result<WindowWrapper> {
@@ -2955,6 +3156,19 @@ fn create_webview<T: UserEvent>(
       .with_drag_and_drop(webview_attributes.file_drop_handler_enabled);
   }
 
+  #[cfg(windows)]
+  let window_theme = window_builder.inner.window.preferred_theme;
+
+  #[cfg(target_os = "macos")]
+  {
+    if window_builder.tabbing_identifier.is_none()
+      || window_builder.inner.window.transparent
+      || !window_builder.inner.window.decorations
+    {
+      window_builder.inner = window_builder.inner.with_automatic_window_tabbing(false);
+    }
+  }
+
   let is_window_transparent = window_builder.inner.window.transparent;
   let menu_items = if let Some(menu) = window_builder.menu {
     let mut menu_items = HashMap::new();
@@ -2981,9 +3195,29 @@ fn create_webview<T: UserEvent>(
     webview_builder = webview_builder
       .with_file_drop_handler(create_file_drop_handler(window_event_listeners.clone()));
   }
+  if let Some(navigation_handler) = pending.navigation_handler {
+    webview_builder = webview_builder.with_navigation_handler(move |url| {
+      Url::parse(&url).map(&navigation_handler).unwrap_or(true)
+    });
+  }
   if let Some(user_agent) = webview_attributes.user_agent {
     webview_builder = webview_builder.with_user_agent(&user_agent);
   }
+
+  #[cfg(windows)]
+  if let Some(additional_browser_args) = webview_attributes.additional_browser_args {
+    webview_builder = webview_builder.with_additional_browser_args(&additional_browser_args);
+  }
+
+  #[cfg(windows)]
+  if let Some(theme) = window_theme {
+    webview_builder = webview_builder.with_theme(match theme {
+      WryTheme::Dark => wry::webview::Theme::Dark,
+      WryTheme::Light => wry::webview::Theme::Light,
+      _ => wry::webview::Theme::Light,
+    });
+  }
+
   if let Some(handler) = ipc_handler {
     webview_builder = webview_builder.with_ipc_handler(create_ipc_handler(
       context,
@@ -3005,19 +3239,18 @@ fn create_webview<T: UserEvent>(
     webview_builder = webview_builder.with_initialization_script(&script);
   }
 
-  let mut web_context = web_context.lock().expect("poisoned WebContext store");
+  let mut web_context = web_context_store.lock().expect("poisoned WebContext store");
   let is_first_context = web_context.is_empty();
   let automation_enabled = std::env::var("TAURI_AUTOMATION").as_deref() == Ok("true");
-  let entry = web_context.entry(
-    // force a unique WebContext when automation is false;
+  let web_context_key = // force a unique WebContext when automation is false;
     // the context must be stored on the HashMap because it must outlive the WebView on macOS
     if automation_enabled {
       webview_attributes.data_directory.clone()
     } else {
       // random unique key
       Some(Uuid::new_v4().as_hyphenated().to_string().into())
-    },
-  );
+    };
+  let entry = web_context.entry(web_context_key.clone());
   let web_context = match entry {
     Occupied(occupied) => occupied.into_mut(),
     Vacant(vacant) => {
@@ -3080,7 +3313,15 @@ fn create_webview<T: UserEvent>(
 
   Ok(WindowWrapper {
     label,
-    inner: Some(WindowHandle::Webview(Arc::new(webview))),
+    inner: Some(WindowHandle::Webview {
+      inner: Arc::new(webview),
+      context_store: web_context_store.clone(),
+      context_key: if automation_enabled {
+        None
+      } else {
+        web_context_key
+      },
+    }),
     menu_items,
     window_event_listeners,
     menu_event_listeners: Default::default(),
